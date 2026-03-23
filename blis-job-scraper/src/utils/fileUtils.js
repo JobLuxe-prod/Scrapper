@@ -129,22 +129,18 @@ export function saveToExcel(jobs, filename, separateByCompany = true) {
     Object.keys(jobsByCompany).sort().forEach(company => {
       const companyJobs = jobsByCompany[company];
       const worksheetData = [
-        ['ID', 'Title', 'Company', 'Department', 'Location', 'Work Type', 'Experience Level', 'Description', 'URL', 'Apply URL', 'Scraped At']
+        ['Title', 'Company', 'Location', 'Experience Level', 'Job Type', 'Description', 'Apply URL']
       ];
       
       companyJobs.forEach(jobData => {
         worksheetData.push([
-          jobData.id,
           jobData.title,
           jobData.company,
-          jobData.department,
           jobData.location,
-          jobData.workType,
           jobData.experienceLevel,
+          jobData.workType,
           jobData.description,
-          jobData.url,
-          jobData.applyUrl,
-          jobData.scrapedAt
+          jobData.applyUrl || jobData.url
         ]);
       });
       
@@ -152,17 +148,13 @@ export function saveToExcel(jobs, filename, separateByCompany = true) {
       
       // Set column widths
       worksheet['!cols'] = [
-        { wch: 50 }, // ID
         { wch: 50 }, // Title
-        { wch: 20 }, // Company
-        { wch: 20 }, // Department
-        { wch: 20 }, // Location
-        { wch: 15 }, // Work Type
+        { wch: 25 }, // Company
+        { wch: 30 }, // Location
         { wch: 20 }, // Experience Level
-        { wch: 80 }, // Description
-        { wch: 70 }, // URL
-        { wch: 70 }, // Apply URL
-        { wch: 25 }  // Scraped At
+        { wch: 15 }, // Job Type
+        { wch: 100 }, // Description
+        { wch: 70 }  // Apply URL
       ];
       
       // Sanitize sheet name (Excel has 31 char limit and doesn't allow certain chars)
@@ -174,23 +166,19 @@ export function saveToExcel(jobs, filename, separateByCompany = true) {
   } else {
     // Single sheet with all jobs
     const worksheetData = [
-      ['ID', 'Title', 'Company', 'Department', 'Location', 'Work Type', 'Experience Level', 'Description', 'URL', 'Apply URL', 'Scraped At']
+      ['Title', 'Company', 'Location', 'Experience Level', 'Job Type', 'Description', 'Apply URL']
     ];
     
     jobs.forEach(job => {
       const jobData = job.toJSON();
       worksheetData.push([
-        jobData.id,
         jobData.title,
         jobData.company,
-        jobData.department,
         jobData.location,
-        jobData.workType,
         jobData.experienceLevel,
+        jobData.workType,
         jobData.description,
-        jobData.url,
-        jobData.applyUrl,
-        jobData.scrapedAt
+        jobData.applyUrl || jobData.url
       ]);
     });
     
@@ -198,17 +186,13 @@ export function saveToExcel(jobs, filename, separateByCompany = true) {
     
     // Set column widths
     worksheet['!cols'] = [
-      { wch: 50 }, // ID
       { wch: 50 }, // Title
-      { wch: 20 }, // Company
-      { wch: 20 }, // Department
-      { wch: 20 }, // Location
-      { wch: 15 }, // Work Type
+      { wch: 25 }, // Company
+      { wch: 30 }, // Location
       { wch: 20 }, // Experience Level
-      { wch: 80 }, // Description
-      { wch: 70 }, // URL
-      { wch: 70 }, // Apply URL
-      { wch: 25 }  // Scraped At
+      { wch: 15 }, // Job Type
+      { wch: 100 }, // Description
+      { wch: 70 }  // Apply URL
     ];
     
     XLSX.utils.book_append_sheet(workbook, worksheet, 'All Jobs');

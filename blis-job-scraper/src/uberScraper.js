@@ -161,22 +161,77 @@ export class UberScraper {
 
       // Extract job description
       const jobDetails = await this.page.evaluate(() => {
-        // Extract description
+        // Extract description - improved with better filtering
         let description = '';
+        
+        // Strategy 1: Look for specific job description containers
         const descSelectors = [
-          'div[class*="Role"]',
+          'div[class*="job-description"]',
+          'div[class*="JobDescription"]',
           'div[class*="description"]',
-          'main',
-          'article'
+          '[data-testid*="description"]',
+          'div[class*="Role"]'
         ];
 
         for (const selector of descSelectors) {
           const element = document.querySelector(selector);
-          if (element) {
+          if (element && element.innerText.length > 100) {
             description = element.innerText.trim();
             break;
           }
         }
+        
+        // Strategy 2: Extract from main content with aggressive filtering
+        if (!description || description.length < 100) {
+          const mainContent = document.querySelector('main') || document.querySelector('article');
+          if (mainContent) {
+            const contentElements = mainContent.querySelectorAll('p, li, h3, h4');
+            const seenText = new Set();
+            const textParts = [];
+            
+            // Navigation/menu keywords to filter out
+            const navKeywords = /^(Teams|Departments|Locations|Inside Uber|Products|Home|Ride|Drive|Eat|Merchants|Freight|Transit|Bike|Business|Money|Blog|Benefits|Apply|Back|Share|Save|Jobs|Career|options available|Asia Pacific|Europe|Latin America|United States|Canada)/i;
+            
+            contentElements.forEach(el => {
+              const text = el.textContent.trim();
+              // More aggressive filtering
+              if (text.length > 30 &&
+                  !navKeywords.test(text) &&
+                  !seenText.has(text) &&
+                  !text.includes('options available')) {
+                seenText.add(text);
+                textParts.push(text);
+              }
+            });
+            
+            description = textParts.join('\n\n');
+          }
+        }
+        
+        // Strategy 3: Extract specific sections using regex
+        if (!description || description.length < 100) {
+          const bodyText = document.body.innerText;
+          // Look for job description sections
+          const patterns = [
+            /(?:About the Role|What the Candidate Will Do)([\s\S]+?)(?:Basic Qualifications|Preferred Qualifications|Apply|$)/i,
+            /(?:Basic Qualifications)([\s\S]+?)(?:Preferred Qualifications|Apply|$)/i,
+            /(?:What You'll Do)([\s\S]+?)(?:What We're Looking For|Requirements|Apply|$)/i
+          ];
+          
+          for (const pattern of patterns) {
+            const match = bodyText.match(pattern);
+            if (match && match[1] && match[1].length > 100) {
+              description += match[1].trim() + '\n\n';
+            }
+          }
+        }
+        
+        // Clean up the description
+        description = description
+          .replace(/\n{3,}/g, '\n\n')
+          .replace(/\s{2,}/g, ' ')
+          .replace(/^[\s\-]+/gm, '') // Remove leading dashes and spaces
+          .trim();
 
         return { description };
       });

@@ -3,6 +3,7 @@
 import { BlisScraper } from './scraper.js';
 import { UberScraper } from './uberScraper.js';
 import { SoundHoundScraper } from './soundhoundScraper.js';
+import { IntuitScraper } from './intuitScraper.js';
 import { cleanOutputDirectory, saveToJSON, saveToCSV, saveToExcel } from './utils/fileUtils.js';
 import { logger } from './utils/logger.js';
 import { config } from './config.js';
@@ -15,7 +16,7 @@ async function main() {
   
   logger.section('Multi-Company Job Scraper');
   logger.info('Starting job scraping process...');
-  logger.info('Scraping from: Blis, Uber & SoundHound');
+  logger.info('Scraping from: Blis, Uber, SoundHound & Intuit');
   
   try {
     // Clean output directory before scraping
@@ -45,6 +46,13 @@ async function main() {
     logger.success(`Scraped ${soundhoundJobs.length} jobs from SoundHound`);
     allJobs = allJobs.concat(soundhoundJobs);
     
+    // Scrape Intuit jobs
+    logger.section('Scraping Intuit Jobs');
+    const intuitScraper = new IntuitScraper();
+    const intuitJobs = await intuitScraper.scrape();
+    logger.success(`Scraped ${intuitJobs.length} jobs from Intuit`);
+    allJobs = allJobs.concat(intuitJobs);
+    
     if (allJobs.length === 0) {
       logger.warning('No jobs found!');
       return;
@@ -65,6 +73,7 @@ async function main() {
     logger.info(`  - Blis: ${blisJobs.length} jobs`);
     logger.info(`  - Uber: ${uberJobs.length} jobs`);
     logger.info(`  - SoundHound: ${soundhoundJobs.length} jobs`);
+    logger.info(`  - Intuit: ${intuitJobs.length} jobs`);
     logger.success(`Time taken: ${duration}s`);
     logger.info(`JSON output: ${jsonPath}`);
     logger.info(`CSV output: ${csvPath}`);

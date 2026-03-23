@@ -195,61 +195,143 @@ export class BlisScraper {
           }
         }
         
-        // Extract job description
+        // Extract job description - improved with deduplication
+        let description = '';
+        
+        // Strategy 1: Look for specific job description containers
         const descriptionSelectors = [
+          'div[class*="job-description"]',
           'div[class*="description"]',
-          'div[class*="content"]',
-          'main',
-          'article'
+          '[data-qa="job-description"]',
+          '[class*="JobDescription"]',
+          'div[class*="content"] div[class*="description"]'
         ];
 
-        let description = '';
         for (const selector of descriptionSelectors) {
           const element = document.querySelector(selector);
-          if (element) {
+          if (element && element.innerText.length > 100) {
             description = element.innerText.trim();
             break;
           }
         }
+        
+        // Strategy 2: If no description found, extract from main content
+        if (!description || description.length < 100) {
+          const mainContent = document.querySelector('main') || document.querySelector('article');
+          if (mainContent) {
+            const contentElements = mainContent.querySelectorAll('p, li, h3, h4');
+            const seenText = new Set(); // Track seen text to avoid duplicates
+            const textParts = [];
+            
+            contentElements.forEach(el => {
+              const text = el.textContent.trim();
+              // Filter out short text, navigation, and duplicates
+              if (text.length > 20 &&
+                  !text.match(/^(Apply|Back|Share|Save|Home|Jobs|Career|Finance|·|Mumbai|Hybrid)/i) &&
+                  !seenText.has(text)) {
+                seenText.add(text);
+                textParts.push(text);
+              }
+            });
+            
+            description = textParts.join('\n\n');
+          }
+        }
+        
+        // Strategy 3: Fallback to body text but clean it up
+        if (!description || description.length < 50) {
+          const bodyText = document.body.innerText;
+          const match = bodyText.match(/(?:Description|About|Role|Responsibilities|Requirements|What you'll do)([\s\S]+?)(?:Apply|Share|Back to jobs|$)/i);
+          if (match && match[1]) {
+            description = match[1].trim();
+          } else {
+            description = bodyText.substring(0, 2000);
+          }
+        }
+        
+        // Clean up the description
+        description = description
+          .replace(/\n{3,}/g, '\n\n') // Remove excessive line breaks
+          .replace(/\s{2,}/g, ' ')     // Remove excessive spaces
+          .trim();
         
         return { department, location, workType, description };
       });
 
       // Extract apply URL
       const applyUrl = await this.page.evaluate(() => {
-        // Try multiple selectors for apply button/link
+        // Try multiple selectors for apply button/link - prioritize actual links
         const selectors = [
           'a[href*="apply"]',
-          'button[class*="apply"]',
+          'a[href*="greenhouse"]',
+          'a[href*="lever"]',
+          'a[href*="workday"]',
           'a[class*="apply"]',
-          'a.apply-button',
-          'button.apply-button'
+          'a.apply-button'
         ];
         
         for (const selector of selectors) {
           const element = document.querySelector(selector);
           if (element) {
             const href = element.getAttribute('href');
-            return href || window.location.href + '/apply';
+            if (href && href.trim() !== '' && href !== '#') {
+              return href;
+            }
           }
         }
         
-        // Fallback: look for any button/link containing "apply" text
-        const allLinks = Array.from(document.querySelectorAll('a, button'));
-        const applyElement = allLinks.find(el =>
-          el.textContent.toLowerCase().includes('apply')
-        );
+        // Fallback: look for any link containing "apply" text
+        const allLinks = Array.from(document.querySelectorAll('a'));
+        const applyLink = allLinks.find(el => {
+          const text = el.textContent.toLowerCase();
+          const href = el.getAttribute('href');
+          return (text.includes('apply') || text.includes('submit')) &&
+                 href && href.trim() !== '' && href !== '#';
+        });
         
-        if (applyElement) {
-          const href = applyElement.getAttribute('href');
-          return href || window.location.href + '/apply';
+        if (applyLink) {
+          const href = applyLink.getAttribute('href');
+          return href;
         }
         
-        return window.location.href + '/apply';
+        // Last resort: check for buttons that might trigger apply modals
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const applyButton = buttons.find(btn =>
+          btn.textContent.toLowerCase().includes('apply')
+        );
+        
+        if (applyButton) {
+          // Check if button has onclick or data attributes with URLs
+          const onclick = applyButton.getAttribute('onclick');
+          const dataUrl = applyButton.getAttribute('data-url') ||
+                         applyButton.getAttribute('data-href') ||
+                         applyButton.getAttribute('data-link');
+          
+          if (dataUrl) return dataUrl;
+          if (onclick && onclick.includes('http')) {
+            const urlMatch = onclick.match(/https?:\/\/[^\s'"]+/);
+            if (urlMatch) return urlMatch[0];
+          }
+        }
+        
+        // If nothing found, return the current page URL (job detail page itself)
+        return window.location.href;
       });
 
       // Extract experience level from title
       const experienceLevel = this.extractExperienceLevel(jobData.title, jobDetails.description);
+
+      // Properly construct apply URL
+      let finalApplyUrl = applyUrl;
+      if (!applyUrl.startsWith('http')) {
+        // Handle relative URLs
+        if (applyUrl.startsWith('/')) {
+          finalApplyUrl = `https://careers.blis.com${applyUrl}`;
+        } else {
+          // If it's just a path fragment, append to base URL
+          finalApplyUrl = `https://careers.blis.com/${applyUrl}`;
+        }
+      }
 
       // Create Job object
       const job = new Job({
@@ -262,7 +344,7 @@ export class BlisScraper {
         experienceLevel: experienceLevel,
         description: jobDetails.description.substring(0, 5000), // Limit description length
         url: jobData.url,
-        applyUrl: applyUrl.startsWith('http') ? applyUrl : `https://careers.blis.com${applyUrl}`
+        applyUrl: finalApplyUrl
       });
 
       if (job.isValid()) {
