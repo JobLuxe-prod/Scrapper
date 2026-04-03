@@ -4,7 +4,10 @@ import { BlisScraper } from './scraper.js';
 import { UberScraper } from './uberScraper.js';
 import { SoundHoundScraper } from './soundhoundScraper.js';
 import { IntuitScraper } from './intuitScraper.js';
+import { FlipkartScraper } from './flipkartScraper.js';
+import { QualcommScraper } from './qualcommScraper.js';
 import { cleanOutputDirectory, saveToJSON, saveToCSV, saveToExcel } from './utils/fileUtils.js';
+import { processCompanyJobs } from './utils/jobDeduplication.js';
 import { logger } from './utils/logger.js';
 import { config } from './config.js';
 
@@ -16,51 +19,50 @@ async function main() {
   
   logger.section('Multi-Company Job Scraper');
   logger.info('Starting job scraping process...');
-  logger.info('Scraping from: Blis, Uber, SoundHound & Intuit');
+  logger.info('Scraping from: Blis, Uber, SoundHound, Intuit, Flipkart & Qualcomm');
   
   try {
-    // Clean output directory before scraping
-    logger.section('Cleaning Output Directory');
-    cleanOutputDirectory();
-    
     let allJobs = [];
+    const results = {};
+    const companies = [
+      { name: 'Blis', Scraper: BlisScraper },
+      { name: 'Uber', Scraper: UberScraper },
+      { name: 'SoundHound', Scraper: SoundHoundScraper },
+      { name: 'Intuit', Scraper: IntuitScraper },
+      { name: 'Flipkart', Scraper: FlipkartScraper },
+      { name: 'Qualcomm', Scraper: QualcommScraper }
+    ];
     
-    // Scrape Blis jobs
-    logger.section('Scraping Blis Jobs');
-    const blisScraper = new BlisScraper();
-    const blisJobs = await blisScraper.scrape();
-    logger.success(`Scraped ${blisJobs.length} jobs from Blis`);
-    allJobs = allJobs.concat(blisJobs);
-    
-    // Scrape Uber jobs
-    logger.section('Scraping Uber Jobs');
-    const uberScraper = new UberScraper();
-    const uberJobs = await uberScraper.scrape();
-    logger.success(`Scraped ${uberJobs.length} jobs from Uber`);
-    allJobs = allJobs.concat(uberJobs);
-    
-    // Scrape SoundHound jobs
-    logger.section('Scraping SoundHound Jobs');
-    const soundhoundScraper = new SoundHoundScraper();
-    const soundhoundJobs = await soundhoundScraper.scrape();
-    logger.success(`Scraped ${soundhoundJobs.length} jobs from SoundHound`);
-    allJobs = allJobs.concat(soundhoundJobs);
-    
-    // Scrape Intuit jobs
-    logger.section('Scraping Intuit Jobs');
-    const intuitScraper = new IntuitScraper();
-    const intuitJobs = await intuitScraper.scrape();
-    logger.success(`Scraped ${intuitJobs.length} jobs from Intuit`);
-    allJobs = allJobs.concat(intuitJobs);
+    // Scrape each company and process with deduplication
+    for (const { name, Scraper } of companies) {
+      logger.section(`Scraping ${name} Jobs`);
+      
+      try {
+        const scraper = new Scraper();
+        const jobs = await scraper.scrape();
+        logger.success(`✓ Scraped ${jobs.length} jobs from ${name}`);
+        
+        // Process with deduplication and create master sheets
+        results[name] = processCompanyJobs(name, jobs);
+        allJobs = allJobs.concat(jobs);
+        
+      } catch (error) {
+        logger.error(`✗ Failed to scrape ${name}: ${error.message}`);
+        results[name] = { error: error.message, newJobs: [], totalJobs: 0 };
+      }
+    }
     
     if (allJobs.length === 0) {
       logger.warning('No jobs found!');
       return;
     }
     
-    // Save results
-    logger.section('Saving Results');
+    // Calculate totals
+    const totalNew = Object.values(results).reduce((sum, r) => sum + (r.newJobs?.length || 0), 0);
+    const totalInMasters = Object.values(results).reduce((sum, r) => sum + (r.totalJobs || 0), 0);
     
+    // Save combined results (optional - for backward compatibility)
+    logger.section('Saving Combined Results');
     const jsonPath = saveToJSON(allJobs, config.output.jsonFile);
     const csvPath = saveToCSV(allJobs, config.output.csvFile);
     const excelPath = saveToExcel(allJobs, config.output.excelFile, config.output.separateSheetsByCompany);
@@ -69,15 +71,34 @@ async function main() {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     
     logger.section('Summary');
-    logger.success(`Total India jobs scraped: ${allJobs.length}`);
-    logger.info(`  - Blis: ${blisJobs.length} jobs`);
-    logger.info(`  - Uber: ${uberJobs.length} jobs`);
-    logger.info(`  - SoundHound: ${soundhoundJobs.length} jobs`);
-    logger.info(`  - Intuit: ${intuitJobs.length} jobs`);
+    logger.success(`Total jobs scraped: ${allJobs.length}`);
+    logger.success(`New jobs found: ${totalNew}`);
+    logger.success(`Total jobs in all masters: ${totalInMasters}`);
     logger.success(`Time taken: ${duration}s`);
-    logger.info(`JSON output: ${jsonPath}`);
-    logger.info(`CSV output: ${csvPath}`);
-    logger.info(`Excel output: ${excelPath}`);
+    
+    console.log('\n📋 BREAKDOWN BY COMPANY:');
+    console.log('-'.repeat(70));
+    for (const [company, result] of Object.entries(results)) {
+      if (result.error) {
+        console.log(`\n❌ ${company}: ERROR - ${result.error}`);
+      } else {
+        console.log(`\n✅ ${company}:`);
+        console.log(`   New jobs: ${result.newJobs.length}`);
+        console.log(`   Total in master: ${result.totalJobs}`);
+        console.log(`   Master: ${result.masterFile}`);
+        if (result.dailyFile) {
+          console.log(`   Daily: ${result.dailyFile}`);
+        }
+      }
+    }
+    
+    console.log('\n📁 COMBINED OUTPUT FILES:');
+    logger.info(`JSON: ${jsonPath}`);
+    logger.info(`CSV: ${csvPath}`);
+    logger.info(`Excel: ${excelPath}`);
+    
+    console.log('\n💡 TIP: Master sheets contain ALL jobs ever scraped');
+    console.log('💡 TIP: Daily sheets contain only NEW jobs from today');
     
     // Display sample jobs
     logger.section('Sample Jobs');
